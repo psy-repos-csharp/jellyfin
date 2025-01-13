@@ -10,7 +10,7 @@ using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Model.Drawing;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
-using SKSvg = SkiaSharp.Extended.Svg.SKSvg;
+using Svg.Skia;
 
 namespace Jellyfin.Drawing.Skia;
 
@@ -19,10 +19,34 @@ namespace Jellyfin.Drawing.Skia;
 /// </summary>
 public class SkiaEncoder : IImageEncoder
 {
+    private const string SvgFormat = "svg";
     private static readonly HashSet<string> _transparentImageTypes = new(StringComparer.OrdinalIgnoreCase) { ".png", ".gif", ".webp" };
-
     private readonly ILogger<SkiaEncoder> _logger;
     private readonly IApplicationPaths _appPaths;
+    private static readonly SKImageFilter _imageFilter;
+
+#pragma warning disable CA1810
+    static SkiaEncoder()
+#pragma warning restore CA1810
+    {
+        var kernel = new[]
+        {
+            0,    -.1f,    0,
+            -.1f, 1.4f, -.1f,
+            0,    -.1f,    0,
+        };
+
+        var kernelSize = new SKSizeI(3, 3);
+        var kernelOffset = new SKPointI(1, 1);
+        _imageFilter = SKImageFilter.CreateMatrixConvolution(
+            kernelSize,
+            kernel,
+            1f,
+            0f,
+            kernelOffset,
+            SKShaderTileMode.Clamp,
+            true);
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SkiaEncoder"/> class.
@@ -65,12 +89,13 @@ public class SkiaEncoder : IImageEncoder
             // working on windows at least
             "cr2",
             "nef",
-            "arw"
+            "arw",
+            SvgFormat
         };
 
     /// <inheritdoc/>
     public IReadOnlyCollection<ImageFormat> SupportedOutputFormats
-        => new HashSet<ImageFormat> { ImageFormat.Webp, ImageFormat.Jpg, ImageFormat.Png };
+        => new HashSet<ImageFormat> { ImageFormat.Webp, ImageFormat.Jpg, ImageFormat.Png, ImageFormat.Svg };
 
     /// <summary>
     /// Check if the native lib is available.
@@ -119,11 +144,17 @@ public class SkiaEncoder : IImageEncoder
         var extension = Path.GetExtension(path.AsSpan());
         if (extension.Equals(".svg", StringComparison.OrdinalIgnoreCase))
         {
-            var svg = new SKSvg();
+            using var svg = new SKSvg();
             try
             {
-                svg.Load(path);
-                return new ImageDimensions(Convert.ToInt32(svg.Picture.CullRect.Width), Convert.ToInt32(svg.Picture.CullRect.Height));
+                using var picture = svg.Load(path);
+                if (picture is null)
+                {
+                    _logger.LogError("Unable to determine image dimensions for {FilePath}", path);
+                    return default;
+                }
+
+                return new ImageDimensions(Convert.ToInt32(picture.CullRect.Width), Convert.ToInt32(picture.CullRect.Height));
             }
             catch (FormatException skiaColorException)
             {
@@ -152,13 +183,13 @@ public class SkiaEncoder : IImageEncoder
     /// <inheritdoc />
     /// <exception cref="ArgumentNullException">The path is null.</exception>
     /// <exception cref="FileNotFoundException">The path is not valid.</exception>
-    /// <exception cref="SkiaCodecException">The file at the specified path could not be used to generate a codec.</exception>
     public string GetImageBlurHash(int xComp, int yComp, string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         var extension = Path.GetExtension(path.AsSpan()).TrimStart('.');
-        if (!SupportedInputFormats.Contains(extension, StringComparison.OrdinalIgnoreCase))
+        if (!SupportedInputFormats.Contains(extension, StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(SvgFormat, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug("Unable to compute blur hash due to unsupported format: {ImagePath}", path);
             return string.Empty;
@@ -188,7 +219,7 @@ public class SkiaEncoder : IImageEncoder
             return path;
         }
 
-        var tempPath = Path.Combine(_appPaths.TempDirectory, Guid.NewGuid() + Path.GetExtension(path));
+        var tempPath = Path.Join(_appPaths.TempDirectory, string.Concat("skia_", Guid.NewGuid().ToString(), Path.GetExtension(path.AsSpan())));
         var directory = Path.GetDirectoryName(tempPath) ?? throw new ResourceNotFoundException($"Provided path ({tempPath}) is not valid.");
         Directory.CreateDirectory(directory);
         File.Copy(path, tempPath, true);
@@ -200,20 +231,10 @@ public class SkiaEncoder : IImageEncoder
     {
         if (!orientation.HasValue)
         {
-            return SKEncodedOrigin.TopLeft;
+            return SKEncodedOrigin.Default;
         }
 
-        return orientation.Value switch
-        {
-            ImageOrientation.TopRight => SKEncodedOrigin.TopRight,
-            ImageOrientation.RightTop => SKEncodedOrigin.RightTop,
-            ImageOrientation.RightBottom => SKEncodedOrigin.RightBottom,
-            ImageOrientation.LeftTop => SKEncodedOrigin.LeftTop,
-            ImageOrientation.LeftBottom => SKEncodedOrigin.LeftBottom,
-            ImageOrientation.BottomRight => SKEncodedOrigin.BottomRight,
-            ImageOrientation.BottomLeft => SKEncodedOrigin.BottomLeft,
-            _ => SKEncodedOrigin.TopLeft
-        };
+        return (SKEncodedOrigin)orientation.Value;
     }
 
     /// <summary>
@@ -242,15 +263,30 @@ public class SkiaEncoder : IImageEncoder
                 return null;
             }
 
+            if (codec.FrameCount != 0)
+            {
+                throw new ArgumentException("Cannot decode images with multiple frames");
+            }
+
             // create the bitmap
-            var bitmap = new SKBitmap(codec.Info.Width, codec.Info.Height, !requiresTransparencyHack);
+            SKBitmap? bitmap = null;
+            try
+            {
+                bitmap = new SKBitmap(codec.Info.Width, codec.Info.Height, !requiresTransparencyHack);
 
-            // decode
-            _ = codec.GetPixels(bitmap.Info, bitmap.GetPixels());
+                // decode
+                _ = codec.GetPixels(bitmap.Info, bitmap.GetPixels());
 
-            origin = codec.EncodedOrigin;
+                origin = codec.EncodedOrigin;
 
-            return bitmap;
+                return bitmap!;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Detected intermediary error decoding image {0}", path);
+                bitmap?.Dispose();
+                throw;
+            }
         }
 
         var resultBitmap = SKBitmap.Decode(NormalizePath(path));
@@ -260,17 +296,26 @@ public class SkiaEncoder : IImageEncoder
             return Decode(path, true, orientation, out origin);
         }
 
-        // If we have to resize these they often end up distorted
-        if (resultBitmap.ColorType == SKColorType.Gray8)
+        try
         {
-            using (resultBitmap)
+             // If we have to resize these they often end up distorted
+            if (resultBitmap.ColorType == SKColorType.Gray8)
             {
-                return Decode(path, true, orientation, out origin);
+                using (resultBitmap)
+                {
+                    return Decode(path, true, orientation, out origin);
+                }
             }
-        }
 
-        origin = SKEncodedOrigin.TopLeft;
-        return resultBitmap;
+            origin = SKEncodedOrigin.TopLeft;
+            return resultBitmap;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Detected intermediary error decoding image {0}", path);
+            resultBitmap?.Dispose();
+            throw;
+        }
     }
 
     private SKBitmap? GetBitmap(string path, bool autoOrient, ImageOrientation? orientation)
@@ -293,52 +338,94 @@ public class SkiaEncoder : IImageEncoder
         return Decode(path, false, orientation, out _);
     }
 
-    private SKBitmap OrientImage(SKBitmap bitmap, SKEncodedOrigin origin)
+    private SKBitmap? GetBitmapFromSvg(string path)
     {
-        var needsFlip = origin == SKEncodedOrigin.LeftBottom
-                        || origin == SKEncodedOrigin.LeftTop
-                        || origin == SKEncodedOrigin.RightBottom
-                        || origin == SKEncodedOrigin.RightTop;
-        var rotated = needsFlip
-            ? new SKBitmap(bitmap.Height, bitmap.Width)
-            : new SKBitmap(bitmap.Width, bitmap.Height);
-        using var surface = new SKCanvas(rotated);
-        var midX = (float)rotated.Width / 2;
-        var midY = (float)rotated.Height / 2;
-
-        switch (origin)
+        if (!File.Exists(path))
         {
-            case SKEncodedOrigin.TopRight:
-                surface.Scale(-1, 1, midX, midY);
-                break;
-            case SKEncodedOrigin.BottomRight:
-                surface.RotateDegrees(180, midX, midY);
-                break;
-            case SKEncodedOrigin.BottomLeft:
-                surface.Scale(1, -1, midX, midY);
-                break;
-            case SKEncodedOrigin.LeftTop:
-                surface.Translate(0, -rotated.Height);
-                surface.Scale(1, -1, midX, midY);
-                surface.RotateDegrees(-90);
-                break;
-            case SKEncodedOrigin.RightTop:
-                surface.Translate(rotated.Width, 0);
-                surface.RotateDegrees(90);
-                break;
-            case SKEncodedOrigin.RightBottom:
-                surface.Translate(rotated.Width, 0);
-                surface.Scale(1, -1, midX, midY);
-                surface.RotateDegrees(90);
-                break;
-            case SKEncodedOrigin.LeftBottom:
-                surface.Translate(0, rotated.Height);
-                surface.RotateDegrees(-90);
-                break;
+            throw new FileNotFoundException("File not found", path);
         }
 
-        surface.DrawBitmap(bitmap, 0, 0);
-        return rotated;
+        using var svg = SKSvg.CreateFromFile(path);
+        if (svg.Drawable is null)
+        {
+            return null;
+        }
+
+        var width = (int)Math.Round(svg.Drawable.Bounds.Width);
+        var height = (int)Math.Round(svg.Drawable.Bounds.Height);
+
+        SKBitmap? bitmap = null;
+        try
+        {
+            bitmap = new SKBitmap(width, height);
+            using var canvas = new SKCanvas(bitmap);
+            canvas.DrawPicture(svg.Picture);
+            canvas.Flush();
+            canvas.Save();
+
+            return bitmap!;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Detected intermediary error extracting image {0}", path);
+            bitmap?.Dispose();
+            throw;
+        }
+    }
+
+    private SKBitmap OrientImage(SKBitmap bitmap, SKEncodedOrigin origin)
+    {
+        var needsFlip = origin is SKEncodedOrigin.LeftBottom or SKEncodedOrigin.LeftTop or SKEncodedOrigin.RightBottom or SKEncodedOrigin.RightTop;
+        SKBitmap? rotated = null;
+        try
+        {
+            rotated = needsFlip
+                ? new SKBitmap(bitmap.Height, bitmap.Width)
+                : new SKBitmap(bitmap.Width, bitmap.Height);
+            using var surface = new SKCanvas(rotated);
+            var midX = (float)rotated.Width / 2;
+            var midY = (float)rotated.Height / 2;
+
+            switch (origin)
+            {
+                case SKEncodedOrigin.TopRight:
+                    surface.Scale(-1, 1, midX, midY);
+                    break;
+                case SKEncodedOrigin.BottomRight:
+                    surface.RotateDegrees(180, midX, midY);
+                    break;
+                case SKEncodedOrigin.BottomLeft:
+                    surface.Scale(1, -1, midX, midY);
+                    break;
+                case SKEncodedOrigin.LeftTop:
+                    surface.Translate(0, -rotated.Height);
+                    surface.Scale(1, -1, midX, midY);
+                    surface.RotateDegrees(-90);
+                    break;
+                case SKEncodedOrigin.RightTop:
+                    surface.Translate(rotated.Width, 0);
+                    surface.RotateDegrees(90);
+                    break;
+                case SKEncodedOrigin.RightBottom:
+                    surface.Translate(rotated.Width, 0);
+                    surface.Scale(1, -1, midX, midY);
+                    surface.RotateDegrees(90);
+                    break;
+                case SKEncodedOrigin.LeftBottom:
+                    surface.Translate(0, rotated.Height);
+                    surface.RotateDegrees(-90);
+                    break;
+            }
+
+            surface.DrawBitmap(bitmap, 0, 0);
+            return rotated;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Detected intermediary error rotating image");
+            rotated?.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -363,25 +450,7 @@ public class SkiaEncoder : IImageEncoder
             IsDither = isDither
         };
 
-        var kernel = new float[9]
-        {
-            0,    -.1f,    0,
-            -.1f, 1.4f, -.1f,
-            0,    -.1f,    0,
-        };
-
-        var kernelSize = new SKSizeI(3, 3);
-        var kernelOffset = new SKPointI(1, 1);
-
-        paint.ImageFilter = SKImageFilter.CreateMatrixConvolution(
-            kernelSize,
-            kernel,
-            1f,
-            0f,
-            kernelOffset,
-            SKShaderTileMode.Clamp,
-            true);
-
+        paint.ImageFilter = _imageFilter;
         canvas.DrawBitmap(
             source,
             SKRect.Create(0, 0, source.Width, source.Height),
@@ -404,6 +473,12 @@ public class SkiaEncoder : IImageEncoder
             return inputPath;
         }
 
+        if (outputFormat == ImageFormat.Svg
+            && !inputFormat.Equals(SvgFormat, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"Requested svg output from {inputFormat} input");
+        }
+
         var skiaOutputFormat = GetImageFormat(outputFormat);
 
         var hasBackgroundColor = !string.IsNullOrWhiteSpace(options.BackgroundColor);
@@ -411,7 +486,10 @@ public class SkiaEncoder : IImageEncoder
         var blur = options.Blur ?? 0;
         var hasIndicator = options.UnplayedCount.HasValue || !options.PercentPlayed.Equals(0);
 
-        using var bitmap = GetBitmap(inputPath, autoOrient, orientation);
+        using var bitmap = inputFormat.Equals(SvgFormat, StringComparison.OrdinalIgnoreCase)
+            ? GetBitmapFromSvg(inputPath)
+            : GetBitmap(inputPath, autoOrient, orientation);
+
         if (bitmap is null)
         {
             throw new InvalidDataException($"Skia unable to read image {inputPath}");
@@ -432,7 +510,8 @@ public class SkiaEncoder : IImageEncoder
 
         // scale image (the FromImage creates a copy)
         var imageInfo = new SKImageInfo(width, height, bitmap.ColorType, bitmap.AlphaType, bitmap.ColorSpace);
-        using var resizedBitmap = SKBitmap.FromImage(ResizeImage(bitmap, imageInfo));
+        using var resizedImage = ResizeImage(bitmap, imageInfo);
+        using var resizedBitmap = SKBitmap.FromImage(resizedImage);
 
         // If all we're doing is resizing then we can stop now
         if (!hasBackgroundColor && !hasForegroundColor && blur == 0 && !hasIndicator)
@@ -519,9 +598,88 @@ public class SkiaEncoder : IImageEncoder
     /// <inheritdoc />
     public void CreateSplashscreen(IReadOnlyList<string> posters, IReadOnlyList<string> backdrops)
     {
-        var splashBuilder = new SplashscreenBuilder(this);
-        var outputPath = Path.Combine(_appPaths.DataPath, "splashscreen.png");
-        splashBuilder.GenerateSplash(posters, backdrops, outputPath);
+        // Only generate the splash screen if we have at least one poster and at least one backdrop/thumbnail.
+        if (posters.Count > 0 && backdrops.Count > 0)
+        {
+            var splashBuilder = new SplashscreenBuilder(this, _logger);
+            var outputPath = Path.Combine(_appPaths.DataPath, "splashscreen.png");
+            splashBuilder.GenerateSplash(posters, backdrops, outputPath);
+        }
+    }
+
+    /// <inheritdoc />
+    public int CreateTrickplayTile(ImageCollageOptions options, int quality, int imgWidth, int? imgHeight)
+    {
+        var paths = options.InputPaths;
+        var tileWidth = options.Width;
+        var tileHeight = options.Height;
+
+        if (paths.Count < 1)
+        {
+            throw new ArgumentException("InputPaths cannot be empty.");
+        }
+        else if (paths.Count > tileWidth * tileHeight)
+        {
+            throw new ArgumentException($"InputPaths contains more images than would fit on {tileWidth}x{tileHeight} grid.");
+        }
+
+        // If no height provided, use height of first image.
+        if (!imgHeight.HasValue)
+        {
+            using var firstImg = Decode(paths[0], false, null, out _);
+
+            if (firstImg is null)
+            {
+                throw new InvalidDataException("Could not decode image data.");
+            }
+
+            if (firstImg.Width != imgWidth)
+            {
+                throw new InvalidOperationException("Image width does not match provided width.");
+            }
+
+            imgHeight = firstImg.Height;
+        }
+
+        // Make horizontal strips using every provided image.
+        using var tileGrid = new SKBitmap(imgWidth * tileWidth, imgHeight.Value * tileHeight);
+        using var canvas = new SKCanvas(tileGrid);
+
+        var imgIndex = 0;
+        for (var y = 0; y < tileHeight; y++)
+        {
+            for (var x = 0; x < tileWidth; x++)
+            {
+                if (imgIndex >= paths.Count)
+                {
+                    break;
+                }
+
+                using var img = Decode(paths[imgIndex++], false, null, out _);
+
+                if (img is null)
+                {
+                    throw new InvalidDataException("Could not decode image data.");
+                }
+
+                if (img.Width != imgWidth)
+                {
+                    throw new InvalidOperationException("Image width does not match provided width.");
+                }
+
+                if (img.Height != imgHeight)
+                {
+                    throw new InvalidOperationException("Image height does not match first image height.");
+                }
+
+                canvas.DrawBitmap(img, x * imgWidth, y * imgHeight.Value);
+            }
+        }
+
+        using var outputStream = new SKFileWStream(options.OutputPath);
+        tileGrid.Encode(outputStream, SKEncodedImageFormat.Jpeg, quality);
+
+        return imgHeight.Value;
     }
 
     private void DrawIndicator(SKCanvas canvas, int imageWidth, int imageHeight, ImageProcessingOptions options)

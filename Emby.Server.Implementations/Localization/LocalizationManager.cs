@@ -71,25 +71,28 @@ namespace Emby.Server.Implementations.Localization
                 string countryCode = resource.Substring(RatingsPath.Length, 2);
                 var dict = new Dictionary<string, ParentalRating>(StringComparer.OrdinalIgnoreCase);
 
-                await using var stream = _assembly.GetManifestResourceStream(resource);
-                using var reader = new StreamReader(stream!); // shouldn't be null here, we just got the resource path from Assembly.GetManifestResourceNames()
-                await foreach (var line in reader.ReadAllLinesAsync().ConfigureAwait(false))
+                var stream = _assembly.GetManifestResourceStream(resource);
+                await using (stream!.ConfigureAwait(false)) // shouldn't be null here, we just got the resource path from Assembly.GetManifestResourceNames()
                 {
-                    if (string.IsNullOrWhiteSpace(line))
+                    using var reader = new StreamReader(stream!);
+                    await foreach (var line in reader.ReadAllLinesAsync().ConfigureAwait(false))
                     {
-                        continue;
-                    }
+                        if (string.IsNullOrWhiteSpace(line))
+                        {
+                            continue;
+                        }
 
-                    string[] parts = line.Split(',');
-                    if (parts.Length == 2
-                        && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-                    {
-                        var name = parts[0];
-                        dict.Add(name, new ParentalRating(name, value));
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Malformed line in ratings file for country {CountryCode}", countryCode);
+                        string[] parts = line.Split(',');
+                        if (parts.Length == 2
+                            && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                        {
+                            var name = parts[0];
+                            dict.Add(name, new ParentalRating(name, value));
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Malformed line in ratings file for country {CountryCode}", countryCode);
+                        }
                     }
                 }
 
@@ -275,6 +278,13 @@ namespace Emby.Server.Implementations.Localization
                 return null;
             }
 
+            // Convert integers directly
+            // This may override some of the locale specific age ratings (but those always map to the same age)
+            if (int.TryParse(rating, out var ratingAge))
+            {
+                return ratingAge;
+            }
+
             // Fairly common for some users to have "Rated R" in their rating field
             rating = rating.Replace("Rated :", string.Empty, StringComparison.OrdinalIgnoreCase);
             rating = rating.Replace("Rated ", string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -311,7 +321,11 @@ namespace Emby.Server.Implementations.Localization
             // Try splitting by : to handle "Germany: FSK-18"
             if (rating.Contains(':', StringComparison.OrdinalIgnoreCase))
             {
-                return GetRatingLevel(rating.AsSpan().RightPart(':').ToString());
+                var ratingLevelRightPart = rating.AsSpan().RightPart(':');
+                if (ratingLevelRightPart.Length != 0)
+                {
+                    return GetRatingLevel(ratingLevelRightPart.ToString());
+                }
             }
 
             // Handle prefix country code to handle "DE-18"
@@ -322,8 +336,12 @@ namespace Emby.Server.Implementations.Localization
                 // Extract culture from country prefix
                 var culture = FindLanguageInfo(ratingSpan.LeftPart('-').ToString());
 
-                // Check rating system of culture
-                return GetRatingLevel(ratingSpan.RightPart('-').ToString(), culture?.TwoLetterISOLanguageName);
+                var ratingLevelRightPart = ratingSpan.RightPart('-');
+                if (ratingLevelRightPart.Length != 0)
+                {
+                    // Check rating system of culture
+                    return GetRatingLevel(ratingLevelRightPart.ToString(), culture?.TwoLetterISOLanguageName);
+                }
             }
 
             return null;

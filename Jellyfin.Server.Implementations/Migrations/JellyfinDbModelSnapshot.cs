@@ -15,7 +15,7 @@ namespace Jellyfin.Server.Implementations.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "7.0.5");
+            modelBuilder.HasAnnotation("ProductVersion", "8.0.8");
 
             modelBuilder.Entity("Jellyfin.Data.Entities.AccessSchedule", b =>
                 {
@@ -270,6 +270,33 @@ namespace Jellyfin.Server.Implementations.Migrations
                     b.ToTable("ItemDisplayPreferences");
                 });
 
+            modelBuilder.Entity("Jellyfin.Data.Entities.MediaSegment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("EndTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SegmentProviderId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("StartTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MediaSegments");
+                });
+
             modelBuilder.Entity("Jellyfin.Data.Entities.Permission", b =>
                 {
                     b.Property<int>("Id")
@@ -442,6 +469,37 @@ namespace Jellyfin.Server.Implementations.Migrations
                     b.ToTable("DeviceOptions");
                 });
 
+            modelBuilder.Entity("Jellyfin.Data.Entities.TrickplayInfo", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Bandwidth")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Interval")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ThumbnailCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TileHeight")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TileWidth")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ItemId", "Width");
+
+                    b.ToTable("TrickplayInfos");
+                });
+
             modelBuilder.Entity("Jellyfin.Data.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -455,6 +513,10 @@ namespace Jellyfin.Server.Implementations.Migrations
                     b.Property<string>("AuthenticationProviderId")
                         .IsRequired()
                         .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CastReceiverId")
+                        .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("DisplayCollectionsView")

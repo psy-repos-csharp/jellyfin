@@ -20,11 +20,11 @@ public class ExternalPathParserTests
         var hindiCultureDto = new CultureDto("Hindi", "Hindi", "hi", new[] { "hin" });
 
         var localizationManager = new Mock<ILocalizationManager>(MockBehavior.Loose);
-        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex(@"en.*", RegexOptions.IgnoreCase)))
+        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex("en.*", RegexOptions.IgnoreCase)))
             .Returns(englishCultureDto);
-        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex(@"fr.*", RegexOptions.IgnoreCase)))
+        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex("fr.*", RegexOptions.IgnoreCase)))
             .Returns(frenchCultureDto);
-        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex(@"hi.*", RegexOptions.IgnoreCase)))
+        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex("hi.*", RegexOptions.IgnoreCase)))
             .Returns(hindiCultureDto);
 
         _audioPathParser = new ExternalPathParser(new NamingOptions(), localizationManager.Object, DlnaProfileType.Audio);
@@ -104,6 +104,7 @@ public class ExternalPathParserTests
     [InlineData(".en.cc.title", "title", "eng", false, false, true)]
     [InlineData(".hi.en.title", "title", "eng", false, false, true)]
     [InlineData(".en.hi.title", "title", "eng", false, false, true)]
+    [InlineData(".Subs for Chinese Audio.eng", "Subs for Chinese Audio", "eng", false, false, false)]
     public void ParseFile_ExtraTokens_ParseToValues(string tokens, string? title, string? language, bool isDefault = false, bool isForced = false, bool isHearingImpaired = false)
     {
         var path = "My.Video" + tokens + ".srt";

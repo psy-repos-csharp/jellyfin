@@ -13,7 +13,7 @@ namespace MediaBrowser.XbmcMetadata.Providers
     public abstract class BaseNfoProvider<T> : ILocalMetadataProvider<T>, IHasItemChangeMonitor
         where T : BaseItem, new()
     {
-        private IFileSystem _fileSystem;
+        private readonly IFileSystem _fileSystem;
 
         protected BaseNfoProvider(IFileSystem fileSystem)
         {
@@ -42,7 +42,10 @@ namespace MediaBrowser.XbmcMetadata.Providers
 
             try
             {
-                result.Item = new T();
+                result.Item = new T
+                {
+                    IndexNumber = info.IndexNumber
+                };
 
                 Fetch(result, path, cancellationToken);
                 result.HasMetadata = true;

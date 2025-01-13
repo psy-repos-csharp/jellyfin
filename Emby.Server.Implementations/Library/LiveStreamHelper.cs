@@ -1,5 +1,3 @@
-#nullable disable
-
 #pragma warning disable CS1591
 
 using System;
@@ -37,26 +35,34 @@ namespace Emby.Server.Implementations.Library
             _appPaths = appPaths;
         }
 
-        public async Task AddMediaInfoWithProbe(MediaSourceInfo mediaSource, bool isAudio, string cacheKey, bool addProbeDelay, CancellationToken cancellationToken)
+        public async Task AddMediaInfoWithProbe(MediaSourceInfo mediaSource, bool isAudio, string? cacheKey, bool addProbeDelay, CancellationToken cancellationToken)
         {
             var originalRuntime = mediaSource.RunTimeTicks;
 
             var now = DateTime.UtcNow;
 
-            MediaInfo mediaInfo = null;
+            MediaInfo? mediaInfo = null;
             var cacheFilePath = string.IsNullOrEmpty(cacheKey) ? null : Path.Combine(_appPaths.CachePath, "mediainfo", cacheKey.GetMD5().ToString("N", CultureInfo.InvariantCulture) + ".json");
 
-            if (!string.IsNullOrEmpty(cacheKey))
+            if (cacheFilePath is not null)
             {
                 try
                 {
-                    await using FileStream jsonStream = AsyncFile.OpenRead(cacheFilePath);
-                    mediaInfo = await JsonSerializer.DeserializeAsync<MediaInfo>(jsonStream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                    FileStream jsonStream = AsyncFile.OpenRead(cacheFilePath);
 
-                    // _logger.LogDebug("Found cached media info");
+                    await using (jsonStream.ConfigureAwait(false))
+                    {
+                        mediaInfo = await JsonSerializer.DeserializeAsync<MediaInfo>(jsonStream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                        // _logger.LogDebug("Found cached media info");
+                    }
                 }
-                catch
+                catch (IOException ex)
                 {
+                    _logger.LogDebug(ex, "Could not open cached media info");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error opening cached media info");
                 }
             }
 
@@ -83,11 +89,14 @@ namespace Emby.Server.Implementations.Library
 
                 if (cacheFilePath is not null)
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(cacheFilePath));
-                    await using FileStream createStream = AsyncFile.OpenWrite(cacheFilePath);
-                    await JsonSerializer.SerializeAsync(createStream, mediaInfo, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.GetDirectoryName(cacheFilePath) ?? throw new InvalidOperationException("Path can't be a root directory."));
+                    FileStream createStream = AsyncFile.OpenWrite(cacheFilePath);
+                    await using (createStream.ConfigureAwait(false))
+                    {
+                        await JsonSerializer.SerializeAsync(createStream, mediaInfo, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                    }
 
-                    // _logger.LogDebug("Saved media info to {0}", cacheFilePath);
+                    _logger.LogDebug("Saved media info to {0}", cacheFilePath);
                 }
             }
 

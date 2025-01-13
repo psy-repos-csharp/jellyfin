@@ -1,11 +1,13 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Text;
 
 namespace Jellyfin.Api.Helpers;
 
 /// <summary>
-/// Hls Codec string helpers.
+/// Helpers to generate HLS codec strings according to
+/// <a href="https://datatracker.ietf.org/doc/html/rfc6381#section-3.3">RFC 6381 section 3.3</a>
+/// and the <a href="https://mp4ra.org">MP4 Registration Authority</a>.
 /// </summary>
 public static class HlsCodecStringHelpers
 {
@@ -17,17 +19,17 @@ public static class HlsCodecStringHelpers
     /// <summary>
     /// Codec name for AC-3.
     /// </summary>
-    public const string AC3 = "mp4a.a5";
+    public const string AC3 = "ac-3";
 
     /// <summary>
     /// Codec name for E-AC-3.
     /// </summary>
-    public const string EAC3 = "mp4a.a6";
+    public const string EAC3 = "ec-3";
 
     /// <summary>
     /// Codec name for FLAC.
     /// </summary>
-    public const string FLAC = "flac";
+    public const string FLAC = "fLaC";
 
     /// <summary>
     /// Codec name for ALAC.
@@ -37,7 +39,7 @@ public static class HlsCodecStringHelpers
     /// <summary>
     /// Codec name for OPUS.
     /// </summary>
-    public const string OPUS = "opus";
+    public const string OPUS = "Opus";
 
     /// <summary>
     /// Gets a MP3 codec string.
@@ -181,6 +183,68 @@ public static class HlsCodecStringHelpers
     }
 
     /// <summary>
+    /// Gets a VP9 codec string.
+    /// </summary>
+    /// <param name="width">Video width.</param>
+    /// <param name="height">Video height.</param>
+    /// <param name="pixelFormat">Video pixel format.</param>
+    /// <param name="framerate">Video framerate.</param>
+    /// <param name="bitDepth">Video bitDepth.</param>
+    /// <returns>The VP9 codec string.</returns>
+    public static string GetVp9String(int width, int height, string pixelFormat, float framerate, int bitDepth)
+    {
+        // refer: https://www.webmproject.org/vp9/mp4/
+        StringBuilder result = new StringBuilder("vp09", 13);
+
+        var profileString = pixelFormat switch
+        {
+            "yuv420p" => "00",
+            "yuvj420p" => "00",
+            "yuv422p" => "01",
+            "yuv444p" => "01",
+            "yuv420p10le" => "02",
+            "yuv420p12le" => "02",
+            "yuv422p10le" => "03",
+            "yuv422p12le" => "03",
+            "yuv444p10le" => "03",
+            "yuv444p12le" => "03",
+            _ => "00"
+        };
+
+        var lumaPictureSize = width * height;
+        var lumaSampleRate = lumaPictureSize * framerate;
+        var levelString = lumaPictureSize switch
+        {
+            <= 0 => "00",
+            <= 36864 => "10",
+            <= 73728 => "11",
+            <= 122880 => "20",
+            <= 245760 => "21",
+            <= 552960 => "30",
+            <= 983040 => "31",
+            <= 2228224 => lumaSampleRate <= 83558400 ? "40" : "41",
+            <= 8912896 => lumaSampleRate <= 311951360 ? "50" : (lumaSampleRate <= 588251136 ? "51" : "52"),
+            <= 35651584 => lumaSampleRate <= 1176502272 ? "60" : (lumaSampleRate <= 4706009088 ? "61" : "62"),
+            _ => "00" // This should not happen
+        };
+
+        if (bitDepth != 8
+            && bitDepth != 10
+            && bitDepth != 12)
+        {
+            // Default to 8 bits
+            bitDepth = 8;
+        }
+
+        result.Append('.').Append(profileString).Append('.').Append(levelString);
+        var bitDepthD2 = bitDepth.ToString("D2", CultureInfo.InvariantCulture);
+        result.Append('.')
+            .Append(bitDepthD2);
+
+        return result.ToString();
+    }
+
+    /// <summary>
     /// Gets an AV1 codec string.
     /// </summary>
     /// <param name="profile">AV1 profile.</param>
@@ -190,7 +254,7 @@ public static class HlsCodecStringHelpers
     /// <returns>The AV1 codec string.</returns>
     public static string GetAv1String(string? profile, int level, bool tierFlag, int bitDepth)
     {
-        // https://aomedia.org/av1/specification/annex-a/
+        // https://aomediacodec.github.io/av1-isobmff/#codecsparam
         // FORMAT: [codecTag].[profile].[level][tier].[bitDepth]
         StringBuilder result = new StringBuilder("av01", 13);
 
@@ -212,8 +276,7 @@ public static class HlsCodecStringHelpers
             result.Append(".0");
         }
 
-        if (level <= 0
-            || level > 31)
+        if (level is <= 0 or > 31)
         {
             // Default to the maximum defined level 6.3
             level = 19;
@@ -228,7 +291,8 @@ public static class HlsCodecStringHelpers
         }
 
         result.Append('.')
-            .Append(level)
+            // Needed to pad it double digits; otherwise, browsers will reject the stream.
+            .AppendFormat(CultureInfo.InvariantCulture, "{0:D2}", level)
             .Append(tierFlag ? 'H' : 'M');
 
         string bitDepthD2 = bitDepth.ToString("D2", CultureInfo.InvariantCulture);

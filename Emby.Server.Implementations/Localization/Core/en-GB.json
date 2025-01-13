@@ -124,5 +124,17 @@
     "TaskKeyframeExtractorDescription": "Extracts keyframes from video files to create more precise HLS playlists. This task may run for a long time.",
     "TaskKeyframeExtractor": "Keyframe Extractor",
     "External": "External",
-    "HearingImpaired": "Hearing Impaired"
+    "HearingImpaired": "Hearing Impaired",
+    "TaskRefreshTrickplayImages": "Generate Trickplay Images",
+    "TaskRefreshTrickplayImagesDescription": "Creates trickplay previews for videos in enabled libraries.",
+    "TaskCleanCollectionsAndPlaylists": "Clean up collections and playlists",
+    "TaskCleanCollectionsAndPlaylistsDescription": "Removes items from collections and playlists that no longer exist.",
+    "TaskAudioNormalization": "Audio Normalisation",
+    "TaskAudioNormalizationDescription": "Scans files for audio normalisation data.",
+    "TaskDownloadMissingLyrics": "Download missing lyrics",
+    "TaskDownloadMissingLyricsDescription": "Downloads lyrics for songs",
+    "TaskExtractMediaSegments": "Media Segment Scan",
+    "TaskExtractMediaSegmentsDescription": "Extracts or obtains media segments from MediaSegment enabled plugins.",
+    "TaskMoveTrickplayImages": "Migrate Trickplay Image Location",
+    "TaskMoveTrickplayImagesDescription": "Moves existing trickplay files according to the library settings."
 }

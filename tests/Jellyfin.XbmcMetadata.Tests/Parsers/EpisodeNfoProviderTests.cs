@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading;
 using Jellyfin.Data.Enums;
@@ -114,10 +114,34 @@ namespace Jellyfin.XbmcMetadata.Tests.Parsers
             _parser.Fetch(result, "Test Data/Rising.nfo", CancellationToken.None);
 
             var item = result.Item;
-            Assert.Equal("Rising (1)", item.Name);
+            Assert.Equal("Rising (1) / Rising (2)", item.Name);
             Assert.Equal(1, item.IndexNumber);
             Assert.Equal(2, item.IndexNumberEnd);
             Assert.Equal(1, item.ParentIndexNumber);
+            Assert.Equal("A new Stargate team embarks on a dangerous mission to a distant galaxy, where they discover a mythical lost city -- and a deadly new enemy. / Sheppard tries to convince Weir to mount a rescue mission to free Colonel Sumner, Teyla, and the others captured by the Wraith.", item.Overview);
+            Assert.Equal(new DateTime(2004, 7, 16), item.PremiereDate);
+            Assert.Equal(2004, item.ProductionYear);
+        }
+
+        [Fact]
+        public void Fetch_Valid_MultiEpisode_With_Missing_Tags_Success()
+        {
+            var result = new MetadataResult<Episode>()
+            {
+                Item = new Episode()
+            };
+
+            _parser.Fetch(result, "Test Data/Stargate Atlantis S01E01-E04.nfo", CancellationToken.None);
+
+            var item = result.Item;
+            // <title> provided for episode 1, 3 and 4
+            Assert.Equal("Rising / Hide and Seek / Thirty-Eight Minutes", item.Name);
+            // <originaltitle> provided for all episodes
+            Assert.Equal("Rising (1) / Rising (2) / Hide and Seek / Thirty-Eight Minutes", item.OriginalTitle);
+            Assert.Equal(1, item.IndexNumber);
+            Assert.Equal(4, item.IndexNumberEnd);
+            Assert.Equal(1, item.ParentIndexNumber);
+            // <plot> only provided for episode 1
             Assert.Equal("A new Stargate team embarks on a dangerous mission to a distant galaxy, where they discover a mythical lost city -- and a deadly new enemy.", item.Overview);
             Assert.Equal(new DateTime(2004, 7, 16), item.PremiereDate);
             Assert.Equal(2004, item.ProductionYear);
@@ -133,7 +157,7 @@ namespace Jellyfin.XbmcMetadata.Tests.Parsers
 
             _parser.Fetch(result, "Test Data/Sonarr-Thumb.nfo", CancellationToken.None);
 
-            Assert.Single(result.RemoteImages.Where(x => x.Type == ImageType.Primary));
+            Assert.Single(result.RemoteImages, x => x.Type == ImageType.Primary);
             Assert.Equal("https://artworks.thetvdb.com/banners/episodes/359095/7081317.jpg", result.RemoteImages.First(x => x.Type == ImageType.Primary).Url);
         }
 

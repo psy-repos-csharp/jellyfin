@@ -29,7 +29,7 @@ public class MediaInfoResolverTests
     public const string VideoDirectoryPath = "Test Data/Video";
     public const string VideoDirectoryRegex = @"Test Data[/\\]Video";
     public const string MetadataDirectoryPath = "library/00/00000000000000000000000000000000";
-    public const string MetadataDirectoryRegex = @"library.*";
+    public const string MetadataDirectoryRegex = "library.*";
 
     private readonly ILocalizationManager _localizationManager;
     private readonly MediaInfoResolver _subtitleResolver;
@@ -37,7 +37,7 @@ public class MediaInfoResolverTests
     public MediaInfoResolverTests()
     {
         // prep BaseItem and Video for calls made that expect managers
-        Video.LiveTvManager = Mock.Of<ILiveTvManager>();
+        Video.RecordingsManager = Mock.Of<IRecordingsManager>();
 
         var applicationPaths = new Mock<IServerApplicationPaths>().Object;
         var serverConfig = new Mock<IServerConfigurationManager>();
@@ -49,7 +49,7 @@ public class MediaInfoResolverTests
         var englishCultureDto = new CultureDto("English", "English", "en", new[] { "eng" });
 
         var localizationManager = new Mock<ILocalizationManager>(MockBehavior.Loose);
-        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex(@"en.*", RegexOptions.IgnoreCase)))
+        localizationManager.Setup(lm => lm.FindLanguageInfo(It.IsRegex("en.*", RegexOptions.IgnoreCase)))
             .Returns(englishCultureDto);
         _localizationManager = localizationManager.Object;
 
@@ -79,7 +79,7 @@ public class MediaInfoResolverTests
     {
         // need a media source manager capable of returning something other than file protocol
         var mediaSourceManager = new Mock<IMediaSourceManager>();
-        mediaSourceManager.Setup(m => m.GetPathProtocol(It.IsRegex(@"http.*")))
+        mediaSourceManager.Setup(m => m.GetPathProtocol(It.IsRegex("http.*")))
             .Returns(MediaProtocol.Http);
         BaseItem.MediaSourceManager = mediaSourceManager.Object;
 
@@ -182,11 +182,11 @@ public class MediaInfoResolverTests
     [Theory]
     [InlineData("https://url.com/My.Video.mkv")]
     [InlineData(VideoDirectoryPath)] // valid but no files found for this test
-    public async void GetExternalStreams_BadPaths_ReturnsNoSubtitles(string path)
+    public async Task GetExternalStreams_BadPaths_ReturnsNoSubtitles(string path)
     {
         // need a media source manager capable of returning something other than file protocol
         var mediaSourceManager = new Mock<IMediaSourceManager>();
-        mediaSourceManager.Setup(m => m.GetPathProtocol(It.IsRegex(@"http.*")))
+        mediaSourceManager.Setup(m => m.GetPathProtocol(It.IsRegex("http.*")))
             .Returns(MediaProtocol.Http);
         BaseItem.MediaSourceManager = mediaSourceManager.Object;
 
@@ -285,7 +285,7 @@ public class MediaInfoResolverTests
 
     [Theory]
     [MemberData(nameof(GetExternalStreams_MergeMetadata_HandlesOverridesCorrectly_Data))]
-    public async void GetExternalStreams_MergeMetadata_HandlesOverridesCorrectly(string file, MediaStream[] inputStreams, MediaStream[] expectedStreams)
+    public async Task GetExternalStreams_MergeMetadata_HandlesOverridesCorrectly(string file, MediaStream[] inputStreams, MediaStream[] expectedStreams)
     {
         BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
 
@@ -335,7 +335,7 @@ public class MediaInfoResolverTests
     [InlineData(1, 2)]
     [InlineData(2, 1)]
     [InlineData(2, 2)]
-    public async void GetExternalStreams_StreamIndex_HandlesFilesAndContainers(int fileCount, int streamCount)
+    public async Task GetExternalStreams_StreamIndex_HandlesFilesAndContainers(int fileCount, int streamCount)
     {
         BaseItem.MediaSourceManager = Mock.Of<IMediaSourceManager>();
 

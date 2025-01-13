@@ -18,6 +18,12 @@ namespace Jellyfin.Server.Implementations.Tests.Library
         [InlineData("Superman: Red Son [tmdbid=618355][imdbid=tt10985510]", "imdbid", "tt10985510")]
         [InlineData("Superman: Red Son [tmdbid-618355][imdbid-tt10985510]", "imdbid", "tt10985510")]
         [InlineData("Superman: Red Son [tmdbid-618355][imdbid-tt10985510]", "tmdbid", "618355")]
+        [InlineData("Superman: Red Son [providera-id=1]", "providera-id", "1")]
+        [InlineData("Superman: Red Son [providerb-id=2]", "providerb-id", "2")]
+        [InlineData("Superman: Red Son [providera id=4]", "providera id", "4")]
+        [InlineData("Superman: Red Son [providerb id=5]", "providerb id", "5")]
+        [InlineData("Superman: Red Son [tmdbid=3]", "tmdbid", "3")]
+        [InlineData("Superman: Red Son [tvdbid-6]", "tvdbid", "6")]
         [InlineData("[tmdbid=618355]", "tmdbid", "618355")]
         [InlineData("[tmdbid-618355]", "tmdbid", "618355")]
         [InlineData("tmdbid=111111][tmdbid=618355]", "tmdbid", "618355")]
@@ -48,10 +54,10 @@ namespace Jellyfin.Server.Implementations.Tests.Library
         [InlineData("C:/Users/jeff/myfile.mkv", "C:/Users/jeff", "/home/jeff", "/home/jeff/myfile.mkv")]
         [InlineData("C:/Users/jeff/myfile.mkv", "C:/Users/jeff/", "/home/jeff", "/home/jeff/myfile.mkv")]
         [InlineData("/home/jeff/music/jeff's band/consistently inconsistent.mp3", "/home/jeff/music/jeff's band", "/home/not jeff", "/home/not jeff/consistently inconsistent.mp3")]
-        [InlineData("C:\\Users\\jeff\\myfile.mkv", "C:\\Users/jeff", "/home/jeff", "/home/jeff/myfile.mkv")]
-        [InlineData("C:\\Users\\jeff\\myfile.mkv", "C:\\Users/jeff", "/home/jeff/", "/home/jeff/myfile.mkv")]
-        [InlineData("C:\\Users\\jeff\\myfile.mkv", "C:\\Users/jeff/", "/home/jeff/", "/home/jeff/myfile.mkv")]
-        [InlineData("C:\\Users\\jeff\\myfile.mkv", "C:\\Users/jeff/", "/", "/myfile.mkv")]
+        [InlineData(@"C:\Users\jeff\myfile.mkv", "C:\\Users/jeff", "/home/jeff", "/home/jeff/myfile.mkv")]
+        [InlineData(@"C:\Users\jeff\myfile.mkv", "C:\\Users/jeff", "/home/jeff/", "/home/jeff/myfile.mkv")]
+        [InlineData(@"C:\Users\jeff\myfile.mkv", "C:\\Users/jeff/", "/home/jeff/", "/home/jeff/myfile.mkv")]
+        [InlineData(@"C:\Users\jeff\myfile.mkv", "C:\\Users/jeff/", "/", "/myfile.mkv")]
         [InlineData("/o", "/o", "/s", "/s")] // regression test for #5977
         public void TryReplaceSubPath_ValidArgs_Correct(string path, string subPath, string newSubPath, string? expectedResult)
         {
@@ -78,20 +84,20 @@ namespace Jellyfin.Server.Implementations.Tests.Library
         [Theory]
         [InlineData(null, '/', null)]
         [InlineData(null, '\\', null)]
-        [InlineData("/home/jeff/myfile.mkv", '\\', "\\home\\jeff\\myfile.mkv")]
-        [InlineData("C:\\Users\\Jeff\\myfile.mkv", '/', "C:/Users/Jeff/myfile.mkv")]
-        [InlineData("\\home/jeff\\myfile.mkv", '\\', "\\home\\jeff\\myfile.mkv")]
-        [InlineData("\\home/jeff\\myfile.mkv", '/', "/home/jeff/myfile.mkv")]
+        [InlineData("/home/jeff/myfile.mkv", '\\', @"\home\jeff\myfile.mkv")]
+        [InlineData(@"C:\Users\Jeff\myfile.mkv", '/', "C:/Users/Jeff/myfile.mkv")]
+        [InlineData(@"\home/jeff\myfile.mkv", '\\', @"\home\jeff\myfile.mkv")]
+        [InlineData(@"\home/jeff\myfile.mkv", '/', "/home/jeff/myfile.mkv")]
         [InlineData("", '/', "")]
-        public void NormalizePath_SpecifyingSeparator_Normalizes(string path, char separator, string expectedPath)
+        public void NormalizePath_SpecifyingSeparator_Normalizes(string? path, char separator, string? expectedPath)
         {
             Assert.Equal(expectedPath, path.NormalizePath(separator));
         }
 
         [Theory]
         [InlineData("/home/jeff/myfile.mkv")]
-        [InlineData("C:\\Users\\Jeff\\myfile.mkv")]
-        [InlineData("\\home/jeff\\myfile.mkv")]
+        [InlineData(@"C:\Users\Jeff\myfile.mkv")]
+        [InlineData(@"\home/jeff\myfile.mkv")]
         public void NormalizePath_NoArgs_UsesDirectorySeparatorChar(string path)
         {
             var separator = Path.DirectorySeparatorChar;
@@ -101,8 +107,8 @@ namespace Jellyfin.Server.Implementations.Tests.Library
 
         [Theory]
         [InlineData("/home/jeff/myfile.mkv", '/')]
-        [InlineData("C:\\Users\\Jeff\\myfile.mkv", '\\')]
-        [InlineData("\\home/jeff\\myfile.mkv", '/')]
+        [InlineData(@"C:\Users\Jeff\myfile.mkv", '\\')]
+        [InlineData(@"\home/jeff\myfile.mkv", '/')]
         public void NormalizePath_OutVar_Correct(string path, char expectedSeparator)
         {
             var result = path.NormalizePath(out var separator);

@@ -3,7 +3,6 @@ using System.IO;
 using System.Net;
 using Jellyfin.Server.Helpers;
 using MediaBrowser.Common.Configuration;
-using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Extensions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -36,17 +35,18 @@ public static class WebHostBuilderExtensions
         return builder
             .UseKestrel((builderContext, options) =>
             {
-                var addresses = appHost.NetManager.GetAllBindInterfaces();
+                var addresses = appHost.NetManager.GetAllBindInterfaces(false);
 
                 bool flagged = false;
                 foreach (var netAdd in addresses)
                 {
-                    logger.LogInformation("Kestrel is listening on {Address}", IPAddress.IPv6Any.Equals(netAdd.Address) ? "All IPv6 addresses" : netAdd.Address);
+                    var address = netAdd.Address;
+                    logger.LogInformation("Kestrel is listening on {Address}", address.Equals(IPAddress.IPv6Any) ? "all interfaces" : address);
                     options.Listen(netAdd.Address, appHost.HttpPort);
                     if (appHost.ListenWithHttps)
                     {
                         options.Listen(
-                            netAdd.Address,
+                            address,
                             appHost.HttpsPort,
                             listenOptions => listenOptions.UseHttps(appHost.Certificate));
                     }
@@ -55,7 +55,7 @@ public static class WebHostBuilderExtensions
                         try
                         {
                             options.Listen(
-                                netAdd.Address,
+                                address,
                                 appHost.HttpsPort,
                                 listenOptions => listenOptions.UseHttps());
                         }

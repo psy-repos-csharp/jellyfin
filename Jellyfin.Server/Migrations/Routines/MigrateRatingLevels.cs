@@ -3,7 +3,6 @@ using System.Globalization;
 using System.IO;
 using Emby.Server.Implementations.Data;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -31,7 +30,7 @@ namespace Jellyfin.Server.Migrations.Routines
         }
 
         /// <inheritdoc/>
-        public Guid Id => Guid.Parse("{67445D54-B895-4B24-9F4C-35CE0690EA07}");
+        public Guid Id => Guid.Parse("{73DAB92A-178B-48CD-B05B-FE18733ACDC8}");
 
         /// <inheritdoc/>
         public string Name => "MigrateRatingLevels";
@@ -66,24 +65,20 @@ namespace Jellyfin.Server.Migrations.Routines
 
             // Migrate parental rating strings to new levels
             _logger.LogInformation("Recalculating parental rating levels based on rating string.");
-            using (var connection = new SqliteConnection($"Filename={dbPath}"))
+            using var connection = new SqliteConnection($"Filename={dbPath}");
+            connection.Open();
             using (var transaction = connection.BeginTransaction())
             {
                 var queryResult = connection.Query("SELECT DISTINCT OfficialRating FROM TypedBaseItems");
                 foreach (var entry in queryResult)
                 {
-                    var ratingString = entry.GetString(0);
-                    if (string.IsNullOrEmpty(ratingString))
+                    if (!entry.TryGetString(0, out var ratingString) || string.IsNullOrEmpty(ratingString))
                     {
                         connection.Execute("UPDATE TypedBaseItems SET InheritedParentalRatingValue = NULL WHERE OfficialRating IS NULL OR OfficialRating='';");
                     }
                     else
                     {
-                        var ratingValue = _localizationManager.GetRatingLevel(ratingString).ToString();
-                        if (string.IsNullOrEmpty(ratingValue))
-                        {
-                            ratingValue = "NULL";
-                        }
+                        var ratingValue = _localizationManager.GetRatingLevel(ratingString)?.ToString(CultureInfo.InvariantCulture) ?? "NULL";
 
                         using var statement = connection.PrepareStatement("UPDATE TypedBaseItems SET InheritedParentalRatingValue = @Value WHERE OfficialRating = @Rating;");
                         statement.TryBind("@Value", ratingValue);

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Jellyfin.Data.Entities;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Entities;
@@ -64,7 +65,7 @@ namespace MediaBrowser.Model.Dto
 
         public DateTime? DateLastMediaAdded { get; set; }
 
-        public string ExtraType { get; set; }
+        public ExtraType? ExtraType { get; set; }
 
         public int? AirsBeforeSeasonNumber { get; set; }
 
@@ -83,11 +84,6 @@ namespace MediaBrowser.Model.Dto
         public string PreferredMetadataLanguage { get; set; }
 
         public string PreferredMetadataCountryCode { get; set; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether [supports synchronize].
-        /// </summary>
-        public bool? SupportsSync { get; set; }
 
         public string Container { get; set; }
 
@@ -419,7 +415,7 @@ namespace MediaBrowser.Model.Dto
         /// Gets or sets the type of the collection.
         /// </summary>
         /// <value>The type of the collection.</value>
-        public string CollectionType { get; set; }
+        public CollectionType? CollectionType { get; set; }
 
         /// <summary>
         /// Gets or sets the display order.
@@ -569,6 +565,12 @@ namespace MediaBrowser.Model.Dto
         public List<ChapterInfo> Chapters { get; set; }
 
         /// <summary>
+        /// Gets or sets the trickplay manifest.
+        /// </summary>
+        /// <value>The trickplay manifest.</value>
+        public Dictionary<string, Dictionary<int, TrickplayInfo>> Trickplay { get; set; }
+
+        /// <summary>
         /// Gets or sets the type of the location.
         /// </summary>
         /// <value>The type of the location.</value>
@@ -584,7 +586,7 @@ namespace MediaBrowser.Model.Dto
         /// Gets or sets the type of the media.
         /// </summary>
         /// <value>The type of the media.</value>
-        public string MediaType { get; set; }
+        public MediaType MediaType { get; set; }
 
         /// <summary>
         /// Gets or sets the end date.
@@ -780,10 +782,10 @@ namespace MediaBrowser.Model.Dto
         public string TimerId { get; set; }
 
         /// <summary>
-        /// Gets or sets the LUFS value.
+        /// Gets or sets the gain required for audio normalization.
         /// </summary>
-        /// <value>The LUFS Value.</value>
-        public float? LUFS { get; set; }
+        /// <value>The gain required for audio normalization.</value>
+        public float? NormalizationGain { get; set; }
 
         /// <summary>
         /// Gets or sets the current program.

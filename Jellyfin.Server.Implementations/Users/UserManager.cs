@@ -1,4 +1,4 @@
-﻿#pragma warning disable CA1307
+#pragma warning disable CA1307
 
 using System;
 using System.Collections.Concurrent;
@@ -11,16 +11,17 @@ using Jellyfin.Data.Entities;
 using Jellyfin.Data.Enums;
 using Jellyfin.Data.Events;
 using Jellyfin.Data.Events.Users;
+using Jellyfin.Extensions;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.Cryptography;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Users;
 using Microsoft.EntityFrameworkCore;
@@ -35,7 +36,6 @@ namespace Jellyfin.Server.Implementations.Users
     {
         private readonly IDbContextFactory<JellyfinDbContext> _dbProvider;
         private readonly IEventManager _eventManager;
-        private readonly ICryptoProvider _cryptoProvider;
         private readonly INetworkManager _networkManager;
         private readonly IApplicationHost _appHost;
         private readonly IImageProcessor _imageProcessor;
@@ -45,6 +45,7 @@ namespace Jellyfin.Server.Implementations.Users
         private readonly InvalidAuthProvider _invalidAuthProvider;
         private readonly DefaultAuthenticationProvider _defaultAuthenticationProvider;
         private readonly DefaultPasswordResetProvider _defaultPasswordResetProvider;
+        private readonly IServerConfigurationManager _serverConfigurationManager;
 
         private readonly IDictionary<Guid, User> _users;
 
@@ -53,30 +54,34 @@ namespace Jellyfin.Server.Implementations.Users
         /// </summary>
         /// <param name="dbProvider">The database provider.</param>
         /// <param name="eventManager">The event manager.</param>
-        /// <param name="cryptoProvider">The cryptography provider.</param>
         /// <param name="networkManager">The network manager.</param>
         /// <param name="appHost">The application host.</param>
         /// <param name="imageProcessor">The image processor.</param>
         /// <param name="logger">The logger.</param>
+        /// <param name="serverConfigurationManager">The system config manager.</param>
+        /// <param name="passwordResetProviders">The password reset providers.</param>
+        /// <param name="authenticationProviders">The authentication providers.</param>
         public UserManager(
             IDbContextFactory<JellyfinDbContext> dbProvider,
             IEventManager eventManager,
-            ICryptoProvider cryptoProvider,
             INetworkManager networkManager,
             IApplicationHost appHost,
             IImageProcessor imageProcessor,
-            ILogger<UserManager> logger)
+            ILogger<UserManager> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IEnumerable<IPasswordResetProvider> passwordResetProviders,
+            IEnumerable<IAuthenticationProvider> authenticationProviders)
         {
             _dbProvider = dbProvider;
             _eventManager = eventManager;
-            _cryptoProvider = cryptoProvider;
             _networkManager = networkManager;
             _appHost = appHost;
             _imageProcessor = imageProcessor;
             _logger = logger;
+            _serverConfigurationManager = serverConfigurationManager;
 
-            _passwordResetProviders = appHost.GetExports<IPasswordResetProvider>();
-            _authenticationProviders = appHost.GetExports<IAuthenticationProvider>();
+            _passwordResetProviders = passwordResetProviders.ToList();
+            _authenticationProviders = authenticationProviders.ToList();
 
             _invalidAuthProvider = _authenticationProviders.OfType<InvalidAuthProvider>().First();
             _defaultAuthenticationProvider = _authenticationProviders.OfType<DefaultAuthenticationProvider>().First();
@@ -108,13 +113,13 @@ namespace Jellyfin.Server.Implementations.Users
         // This is some regex that matches only on unicode "word" characters, as well as -, _ and @
         // In theory this will cut out most if not all 'control' characters which should help minimize any weirdness
         // Usernames can contain letters (a-z + whatever else unicode is cool with), numbers (0-9), at-signs (@), dashes (-), underscores (_), apostrophes ('), periods (.) and spaces ( )
-        [GeneratedRegex("^[\\w\\ \\-'._@]+$")]
+        [GeneratedRegex(@"^[\w\ \-'._@+]+$")]
         private static partial Regex ValidUsernameRegex();
 
         /// <inheritdoc/>
         public User? GetUserById(Guid id)
         {
-            if (id.Equals(default))
+            if (id.IsEmpty())
             {
                 throw new ArgumentException("Guid can't be empty", nameof(id));
             }
@@ -196,8 +201,6 @@ namespace Jellyfin.Server.Implementations.Users
             user.AddDefaultPermissions();
             user.AddDefaultPreferences();
 
-            _users.Add(user.Id, user);
-
             return user;
         }
 
@@ -222,6 +225,7 @@ namespace Jellyfin.Server.Implementations.Users
 
                 dbContext.Users.Add(newUser);
                 await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                _users.Add(newUser.Id, newUser);
             }
 
             await _eventManager.PublishAsync(new UserCreatedEventArgs(newUser)).ConfigureAwait(false);
@@ -293,6 +297,7 @@ namespace Jellyfin.Server.Implementations.Users
         public UserDto GetUserDto(User user, string? remoteEndPoint = null)
         {
             var hasPassword = GetAuthenticationProvider(user).HasPassword(user);
+            var castReceiverApplications = _serverConfigurationManager.Configuration.CastReceiverApplications;
             return new UserDto
             {
                 Name = user.Username,
@@ -320,7 +325,11 @@ namespace Jellyfin.Server.Implementations.Users
                     OrderedViews = user.GetPreferenceValues<Guid>(PreferenceKind.OrderedViews),
                     GroupedFolders = user.GetPreferenceValues<Guid>(PreferenceKind.GroupedFolders),
                     MyMediaExcludes = user.GetPreferenceValues<Guid>(PreferenceKind.MyMediaExcludes),
-                    LatestItemsExcludes = user.GetPreferenceValues<Guid>(PreferenceKind.LatestItemExcludes)
+                    LatestItemsExcludes = user.GetPreferenceValues<Guid>(PreferenceKind.LatestItemExcludes),
+                    CastReceiverId = string.IsNullOrEmpty(user.CastReceiverId)
+                        ? castReceiverApplications.FirstOrDefault()?.Id
+                        : castReceiverApplications.FirstOrDefault(c => string.Equals(c.Id, user.CastReceiverId, StringComparison.Ordinal))?.Id
+                          ?? castReceiverApplications.FirstOrDefault()?.Id
                 },
                 Policy = new UserPolicy
                 {
@@ -354,6 +363,7 @@ namespace Jellyfin.Server.Implementations.Users
                     ForceRemoteSourceTranscoding = user.HasPermission(PermissionKind.ForceRemoteSourceTranscoding),
                     EnablePublicSharing = user.HasPermission(PermissionKind.EnablePublicSharing),
                     EnableCollectionManagement = user.HasPermission(PermissionKind.EnableCollectionManagement),
+                    EnableSubtitleManagement = user.HasPermission(PermissionKind.EnableSubtitleManagement),
                     AccessSchedules = user.AccessSchedules.ToArray(),
                     BlockedTags = user.GetPreference(PreferenceKind.BlockedTags),
                     AllowedTags = user.GetPreference(PreferenceKind.AllowedTags),
@@ -373,7 +383,6 @@ namespace Jellyfin.Server.Implementations.Users
         public async Task<User?> AuthenticateUser(
             string username,
             string password,
-            string passwordSha1,
             string remoteEndPoint,
             bool isUserSession)
         {
@@ -384,7 +393,7 @@ namespace Jellyfin.Server.Implementations.Users
             }
 
             var user = Users.FirstOrDefault(i => string.Equals(username, i.Username, StringComparison.OrdinalIgnoreCase));
-            var authResult = await AuthenticateLocalUser(username, password, user, remoteEndPoint)
+            var authResult = await AuthenticateLocalUser(username, password, user)
                 .ConfigureAwait(false);
             var authenticationProvider = authResult.AuthenticationProvider;
             var success = authResult.Success;
@@ -550,6 +559,7 @@ namespace Jellyfin.Server.Implementations.Users
 
                 dbContext.Users.Add(newUser);
                 await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                _users.Add(newUser.Id, newUser);
             }
         }
 
@@ -608,6 +618,13 @@ namespace Jellyfin.Server.Implementations.Users
                 user.EnableNextEpisodeAutoPlay = config.EnableNextEpisodeAutoPlay;
                 user.RememberSubtitleSelections = config.RememberSubtitleSelections;
                 user.SubtitleLanguagePreference = config.SubtitleLanguagePreference;
+
+                // Only set cast receiver id if it is passed in and it exists in the server config.
+                if (!string.IsNullOrEmpty(config.CastReceiverId)
+                    && _serverConfigurationManager.Configuration.CastReceiverApplications.Any(c => string.Equals(c.Id, config.CastReceiverId, StringComparison.Ordinal)))
+                {
+                    user.CastReceiverId = config.CastReceiverId;
+                }
 
                 user.SetPreference(PreferenceKind.OrderedViews, config.OrderedViews);
                 user.SetPreference(PreferenceKind.GroupedFolders, config.GroupedFolders);
@@ -671,6 +688,8 @@ namespace Jellyfin.Server.Implementations.Users
                 user.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, policy.EnableRemoteControlOfOtherUsers);
                 user.SetPermission(PermissionKind.EnablePlaybackRemuxing, policy.EnablePlaybackRemuxing);
                 user.SetPermission(PermissionKind.EnableCollectionManagement, policy.EnableCollectionManagement);
+                user.SetPermission(PermissionKind.EnableSubtitleManagement, policy.EnableSubtitleManagement);
+                user.SetPermission(PermissionKind.EnableLyricManagement, policy.EnableLyricManagement);
                 user.SetPermission(PermissionKind.ForceRemoteSourceTranscoding, policy.ForceRemoteSourceTranscoding);
                 user.SetPermission(PermissionKind.EnablePublicSharing, policy.EnablePublicSharing);
 
@@ -734,7 +753,7 @@ namespace Jellyfin.Server.Implementations.Users
             return GetPasswordResetProviders(user)[0];
         }
 
-        private IList<IAuthenticationProvider> GetAuthenticationProviders(User? user)
+        private List<IAuthenticationProvider> GetAuthenticationProviders(User? user)
         {
             var authenticationProviderId = user?.AuthenticationProviderId;
 
@@ -761,7 +780,7 @@ namespace Jellyfin.Server.Implementations.Users
             return providers;
         }
 
-        private IList<IPasswordResetProvider> GetPasswordResetProviders(User user)
+        private IPasswordResetProvider[] GetPasswordResetProviders(User user)
         {
             var passwordResetProviderId = user.PasswordResetProviderId;
             var providers = _passwordResetProviders.Where(i => i.IsEnabled).ToArray();
@@ -787,8 +806,7 @@ namespace Jellyfin.Server.Implementations.Users
         private async Task<(IAuthenticationProvider? AuthenticationProvider, string Username, bool Success)> AuthenticateLocalUser(
                 string username,
                 string password,
-                User? user,
-                string remoteEndPoint)
+                User? user)
         {
             bool success = false;
             IAuthenticationProvider? authenticationProvider = null;

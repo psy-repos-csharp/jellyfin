@@ -8,6 +8,7 @@ using System.IO;
 using Emby.Naming.Common;
 using Emby.Naming.TV;
 using Emby.Naming.Video;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Resolvers;
@@ -59,11 +60,11 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 var seriesInfo = Naming.TV.SeriesResolver.Resolve(_namingOptions, args.Path);
 
                 var collectionType = args.GetCollectionType();
-                if (string.Equals(collectionType, CollectionType.TvShows, StringComparison.OrdinalIgnoreCase))
+                if (collectionType == CollectionType.tvshows)
                 {
                     // TODO refactor into separate class or something, this is copied from LibraryManager.GetConfiguredContentType
                     var configuredContentType = args.GetConfiguredContentType();
-                    if (!string.Equals(configuredContentType, CollectionType.TvShows, StringComparison.OrdinalIgnoreCase))
+                    if (configuredContentType != CollectionType.tvshows)
                     {
                         return new Series
                         {
@@ -72,7 +73,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                         };
                     }
                 }
-                else if (string.IsNullOrEmpty(collectionType))
+                else if (collectionType is null)
                 {
                     if (args.ContainsFileSystemEntryByName("tvshow.nfo"))
                     {
@@ -185,46 +186,25 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
             var justName = Path.GetFileName(path.AsSpan());
 
             var imdbId = justName.GetAttributeValue("imdbid");
-            if (!string.IsNullOrEmpty(imdbId))
-            {
-                item.SetProviderId(MetadataProvider.Imdb, imdbId);
-            }
+            item.TrySetProviderId(MetadataProvider.Imdb, imdbId);
 
             var tvdbId = justName.GetAttributeValue("tvdbid");
-            if (!string.IsNullOrEmpty(tvdbId))
-            {
-                item.SetProviderId(MetadataProvider.Tvdb, tvdbId);
-            }
+            item.TrySetProviderId(MetadataProvider.Tvdb, tvdbId);
 
             var tvmazeId = justName.GetAttributeValue("tvmazeid");
-            if (!string.IsNullOrEmpty(tvmazeId))
-            {
-                item.SetProviderId(MetadataProvider.TvMaze, tvmazeId);
-            }
+            item.TrySetProviderId(MetadataProvider.TvMaze, tvmazeId);
 
             var tmdbId = justName.GetAttributeValue("tmdbid");
-            if (!string.IsNullOrEmpty(tmdbId))
-            {
-                item.SetProviderId(MetadataProvider.Tmdb, tmdbId);
-            }
+            item.TrySetProviderId(MetadataProvider.Tmdb, tmdbId);
 
             var anidbId = justName.GetAttributeValue("anidbid");
-            if (!string.IsNullOrEmpty(anidbId))
-            {
-                item.SetProviderId("AniDB", anidbId);
-            }
+            item.TrySetProviderId("AniDB", anidbId);
 
             var aniListId = justName.GetAttributeValue("anilistid");
-            if (!string.IsNullOrEmpty(aniListId))
-            {
-                item.SetProviderId("AniList", aniListId);
-            }
+            item.TrySetProviderId("AniList", aniListId);
 
             var aniSearchId = justName.GetAttributeValue("anisearchid");
-            if (!string.IsNullOrEmpty(aniSearchId))
-            {
-                item.SetProviderId("AniSearch", aniSearchId);
-            }
+            item.TrySetProviderId("AniSearch", aniSearchId);
         }
     }
 }

@@ -10,8 +10,6 @@ namespace MediaBrowser.Model.IO
     /// </summary>
     public interface IFileSystem
     {
-        void AddShortcutHandler(IShortcutHandler handler);
-
         /// <summary>
         /// Determines whether the specified filename is shortcut.
         /// </summary>
@@ -34,6 +32,13 @@ namespace MediaBrowser.Model.IO
         void CreateShortcut(string shortcutPath, string target);
 
         string MakeAbsolutePath(string folderPath, string filePath);
+
+        /// <summary>
+        /// Moves a directory to a new location.
+        /// </summary>
+        /// <param name="source">Source directory.</param>
+        /// <param name="destination">Destination directory.</param>
+        void MoveDirectory(string source, string destination);
 
         /// <summary>
         /// Returns a <see cref="FileSystemMetadata" /> object for the specified file or directory path.
@@ -115,13 +120,6 @@ namespace MediaBrowser.Model.IO
         /// <param name="path">The path.</param>
         /// <returns><c>true</c> if [contains sub path] [the specified parent path]; otherwise, <c>false</c>.</returns>
         bool ContainsSubPath(string parentPath, string path);
-
-        /// <summary>
-        /// Normalizes the path.
-        /// </summary>
-        /// <param name="path">The path.</param>
-        /// <returns>System.String.</returns>
-        string NormalizePath(string path);
 
         /// <summary>
         /// Gets the file name without extension.

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.IO;
@@ -15,10 +16,6 @@ namespace Emby.Server.Implementations.IO
     /// </summary>
     public class ManagedFileSystem : IFileSystem
     {
-        private readonly ILogger<ManagedFileSystem> _logger;
-
-        private readonly List<IShortcutHandler> _shortcutHandlers = new List<IShortcutHandler>();
-        private readonly string _tempPath;
         private static readonly bool _isEnvironmentCaseInsensitive = OperatingSystem.IsWindows();
         private static readonly char[] _invalidPathCharacters =
         {
@@ -29,23 +26,24 @@ namespace Emby.Server.Implementations.IO
             (char)31, ':', '*', '?', '\\', '/'
         };
 
+        private readonly ILogger<ManagedFileSystem> _logger;
+        private readonly List<IShortcutHandler> _shortcutHandlers;
+        private readonly string _tempPath;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ManagedFileSystem"/> class.
         /// </summary>
         /// <param name="logger">The <see cref="ILogger"/> instance to use.</param>
         /// <param name="applicationPaths">The <see cref="IApplicationPaths"/> instance to use.</param>
+        /// <param name="shortcutHandlers">the <see cref="IShortcutHandler"/>'s to use.</param>
         public ManagedFileSystem(
             ILogger<ManagedFileSystem> logger,
-            IApplicationPaths applicationPaths)
+            IApplicationPaths applicationPaths,
+            IEnumerable<IShortcutHandler> shortcutHandlers)
         {
             _logger = logger;
             _tempPath = applicationPaths.TempDirectory;
-        }
-
-        /// <inheritdoc />
-        public virtual void AddShortcutHandler(IShortcutHandler handler)
-        {
-            _shortcutHandlers.Add(handler);
+            _shortcutHandlers = shortcutHandlers.ToList();
         }
 
         /// <summary>
@@ -82,39 +80,36 @@ namespace Emby.Server.Implementations.IO
         public virtual string MakeAbsolutePath(string folderPath, string filePath)
         {
             // path is actually a stream
-            if (string.IsNullOrWhiteSpace(filePath) || filePath.Contains("://", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(filePath))
             {
                 return filePath;
             }
 
-            if (filePath.Length > 3 && filePath[1] == ':' && filePath[2] == '/')
+            var isAbsolutePath = Path.IsPathRooted(filePath) && (!OperatingSystem.IsWindows() || filePath[0] != '\\');
+
+            if (isAbsolutePath)
             {
                 // absolute local path
                 return filePath;
             }
 
             // unc path
-            if (filePath.StartsWith("\\\\", StringComparison.Ordinal))
+            if (filePath.StartsWith(@"\\", StringComparison.Ordinal))
             {
                 return filePath;
             }
 
-            var firstChar = filePath[0];
-            if (firstChar == '/')
-            {
-                // for this we don't really know
-                return filePath;
-            }
+            var filePathSpan = filePath.AsSpan();
 
-            // relative path
-            if (firstChar == '\\')
+            // relative path on windows
+            if (filePath[0] == '\\')
             {
-                filePath = filePath.Substring(1);
+                filePathSpan = filePathSpan.Slice(1);
             }
 
             try
             {
-                return Path.GetFullPath(Path.Combine(folderPath, filePath));
+                return Path.GetFullPath(Path.Join(folderPath, filePathSpan));
             }
             catch (ArgumentException)
             {
@@ -151,6 +146,26 @@ namespace Emby.Server.Implementations.IO
             else
             {
                 throw new NotImplementedException();
+            }
+        }
+
+        /// <inheritdoc />
+        public void MoveDirectory(string source, string destination)
+        {
+            try
+            {
+                Directory.Move(source, destination);
+            }
+            catch (IOException)
+            {
+                // Cross device move requires a copy
+                Directory.CreateDirectory(destination);
+                foreach (string file in Directory.GetFiles(source))
+                {
+                    File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+                }
+
+                Directory.Delete(source, true);
             }
         }
 
@@ -332,11 +347,7 @@ namespace Emby.Server.Implementations.IO
             }
         }
 
-        /// <summary>
-        /// Gets the creation time UTC.
-        /// </summary>
-        /// <param name="path">The path.</param>
-        /// <returns>DateTime.</returns>
+        /// <inheritdoc />
         public virtual DateTime GetCreationTimeUtc(string path)
         {
             return GetCreationTimeUtc(GetFileSystemInfo(path));
@@ -373,11 +384,7 @@ namespace Emby.Server.Implementations.IO
             }
         }
 
-        /// <summary>
-        /// Gets the last write time UTC.
-        /// </summary>
-        /// <param name="path">The path.</param>
-        /// <returns>DateTime.</returns>
+        /// <inheritdoc />
         public virtual DateTime GetLastWriteTimeUtc(string path)
         {
             return GetLastWriteTimeUtc(GetFileSystemInfo(path));
@@ -394,7 +401,7 @@ namespace Emby.Server.Implementations.IO
             var info = new FileInfo(path);
 
             if (info.Exists &&
-                ((info.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden) != isHidden)
+                (info.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden != isHidden)
             {
                 if (isHidden)
                 {
@@ -422,8 +429,8 @@ namespace Emby.Server.Implementations.IO
                 return;
             }
 
-            if (((info.Attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly) == readOnly
-                && ((info.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden) == isHidden)
+            if ((info.Attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly == readOnly
+                && (info.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden == isHidden)
             {
                 return;
             }
@@ -451,11 +458,7 @@ namespace Emby.Server.Implementations.IO
             File.SetAttributes(path, attributes);
         }
 
-        /// <summary>
-        /// Swaps the files.
-        /// </summary>
-        /// <param name="file1">The file1.</param>
-        /// <param name="file2">The file2.</param>
+        /// <inheritdoc />
         public virtual void SwapFiles(string file1, string file2)
         {
             ArgumentException.ThrowIfNullOrEmpty(file1);
@@ -471,7 +474,7 @@ namespace Emby.Server.Implementations.IO
             File.Copy(file1, temp1, true);
 
             File.Copy(file2, file1, true);
-            File.Copy(temp1, file2, true);
+            File.Move(temp1, file2, true);
         }
 
         /// <inheritdoc />
@@ -486,24 +489,10 @@ namespace Emby.Server.Implementations.IO
         }
 
         /// <inheritdoc />
-        public virtual string NormalizePath(string path)
-        {
-            ArgumentException.ThrowIfNullOrEmpty(path);
-
-            if (path.EndsWith(":\\", StringComparison.OrdinalIgnoreCase))
-            {
-                return path;
-            }
-
-            return Path.TrimEndingDirectorySeparator(path);
-        }
-
-        /// <inheritdoc />
         public virtual bool AreEqual(string path1, string path2)
         {
-            return string.Equals(
-                NormalizePath(path1),
-                NormalizePath(path2),
+            return Path.TrimEndingDirectorySeparator(path1).Equals(
+                Path.TrimEndingDirectorySeparator(path2),
                 _isEnvironmentCaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
         }
 
@@ -658,7 +647,15 @@ namespace Emby.Server.Implementations.IO
         /// <inheritdoc />
         public virtual IEnumerable<string> GetFileSystemEntryPaths(string path, bool recursive = false)
         {
-            return Directory.EnumerateFileSystemEntries(path, "*", GetEnumerationOptions(recursive));
+            try
+            {
+                return Directory.EnumerateFileSystemEntries(path, "*", GetEnumerationOptions(recursive));
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException or SecurityException)
+            {
+                _logger.LogError(ex, "Failed to enumerate path {Path}", path);
+                return Enumerable.Empty<string>();
+            }
         }
 
         /// <inheritdoc />

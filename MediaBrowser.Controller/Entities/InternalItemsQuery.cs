@@ -36,13 +36,13 @@ namespace MediaBrowser.Controller.Entities
             ImageTypes = Array.Empty<ImageType>();
             IncludeItemTypes = Array.Empty<BaseItemKind>();
             ItemIds = Array.Empty<Guid>();
-            MediaTypes = Array.Empty<string>();
+            MediaTypes = Array.Empty<MediaType>();
             MinSimilarityScore = 20;
             OfficialRatings = Array.Empty<string>();
-            OrderBy = Array.Empty<(string, SortOrder)>();
+            OrderBy = Array.Empty<(ItemSortBy, SortOrder)>();
             PersonIds = Array.Empty<Guid>();
             PersonTypes = Array.Empty<string>();
-            PresetViews = Array.Empty<string>();
+            PresetViews = Array.Empty<CollectionType?>();
             SeriesStatuses = Array.Empty<SeriesStatus>();
             SourceTypes = Array.Empty<SourceType>();
             StudioIds = Array.Empty<Guid>();
@@ -51,6 +51,7 @@ namespace MediaBrowser.Controller.Entities
             TrailerTypes = Array.Empty<TrailerType>();
             VideoTypes = Array.Empty<VideoType>();
             Years = Array.Empty<int>();
+            SkipDeserialization = false;
         }
 
         public InternalItemsQuery(User? user)
@@ -86,7 +87,7 @@ namespace MediaBrowser.Controller.Entities
 
         public bool? IncludeItemsByName { get; set; }
 
-        public string[] MediaTypes { get; set; }
+        public MediaType[] MediaTypes { get; set; }
 
         public BaseItemKind[] IncludeItemTypes { get; set; }
 
@@ -248,7 +249,7 @@ namespace MediaBrowser.Controller.Entities
 
         public Guid[] TopParentIds { get; set; }
 
-        public string[] PresetViews { get; set; }
+        public CollectionType?[] PresetViews { get; set; }
 
         public TrailerType[] TrailerTypes { get; set; }
 
@@ -284,7 +285,7 @@ namespace MediaBrowser.Controller.Entities
 
         public bool? HasChapterImages { get; set; }
 
-        public IReadOnlyList<(string OrderBy, SortOrder SortOrder)> OrderBy { get; set; }
+        public IReadOnlyList<(ItemSortBy OrderBy, SortOrder SortOrder)> OrderBy { get; set; }
 
         public DateTime? MinDateCreated { get; set; }
 
@@ -357,6 +358,8 @@ namespace MediaBrowser.Controller.Entities
         public string? SearchTerm { get; set; }
 
         public string? SeriesTimerId { get; set; }
+
+        public bool SkipDeserialization { get; set; }
 
         public void SetUser(User user)
         {

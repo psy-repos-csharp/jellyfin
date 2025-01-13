@@ -4,11 +4,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -19,14 +19,8 @@ namespace Emby.Server.Implementations.AppBase
     /// </summary>
     public abstract class BaseConfigurationManager : IConfigurationManager
     {
-        private readonly IFileSystem _fileSystem;
-
-        private readonly ConcurrentDictionary<string, object> _configurations = new ConcurrentDictionary<string, object>();
-
-        /// <summary>
-        /// The _configuration sync lock.
-        /// </summary>
-        private readonly object _configurationSyncLock = new object();
+        private readonly ConcurrentDictionary<string, object> _configurations = new();
+        private readonly Lock _configurationSyncLock = new();
 
         private ConfigurationStore[] _configurationStores = Array.Empty<ConfigurationStore>();
         private IConfigurationFactory[] _configurationFactories = Array.Empty<IConfigurationFactory>();
@@ -42,12 +36,13 @@ namespace Emby.Server.Implementations.AppBase
         /// <param name="applicationPaths">The application paths.</param>
         /// <param name="loggerFactory">The logger factory.</param>
         /// <param name="xmlSerializer">The XML serializer.</param>
-        /// <param name="fileSystem">The file system.</param>
-        protected BaseConfigurationManager(IApplicationPaths applicationPaths, ILoggerFactory loggerFactory, IXmlSerializer xmlSerializer, IFileSystem fileSystem)
+        protected BaseConfigurationManager(
+            IApplicationPaths applicationPaths,
+            ILoggerFactory loggerFactory,
+            IXmlSerializer xmlSerializer)
         {
             CommonApplicationPaths = applicationPaths;
             XmlSerializer = xmlSerializer;
-            _fileSystem = fileSystem;
             Logger = loggerFactory.CreateLogger<BaseConfigurationManager>();
 
             UpdateCachePath();
@@ -133,15 +128,11 @@ namespace Emby.Server.Implementations.AppBase
 
             if (_configurationFactories is null)
             {
-                _configurationFactories = new[] { factory };
+                _configurationFactories = [factory];
             }
             else
             {
-                var oldLen = _configurationFactories.Length;
-                var arr = new IConfigurationFactory[oldLen + 1];
-                _configurationFactories.CopyTo(arr, 0);
-                arr[oldLen] = factory;
-                _configurationFactories = arr;
+                _configurationFactories = [.._configurationFactories, factory];
             }
 
             _configurationStores = _configurationFactories
@@ -272,7 +263,7 @@ namespace Emby.Server.Implementations.AppBase
         {
             var file = Path.Combine(path, Guid.NewGuid().ToString());
             File.WriteAllText(file, string.Empty);
-            _fileSystem.DeleteFile(file);
+            File.Delete(file);
         }
 
         private string GetConfigurationFile(string key)

@@ -1,16 +1,14 @@
 #nullable disable
 
-#pragma warning disable CS1591
-
 using System;
 using System.IO;
 using System.Linq;
+using Jellyfin.Data.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Resolvers;
 using MediaBrowser.LocalMetadata.Savers;
-using MediaBrowser.Model.Entities;
 
 namespace Emby.Server.Implementations.Library.Resolvers
 {
@@ -19,18 +17,18 @@ namespace Emby.Server.Implementations.Library.Resolvers
     /// </summary>
     public class PlaylistResolver : GenericFolderResolver<Playlist>
     {
-        private string[] _musicPlaylistCollectionTypes =
-        {
-            string.Empty,
-            CollectionType.Music
-        };
+        private readonly CollectionType?[] _musicPlaylistCollectionTypes =
+        [
+            null,
+            CollectionType.music
+        ];
 
         /// <inheritdoc/>
         protected override Playlist Resolve(ItemResolveArgs args)
         {
             if (args.IsDirectory)
             {
-                // It's a boxset if the path is a directory with [playlist] in its name
+                // It's a playlist if the path is a directory with [playlist] in its name
                 var filename = Path.GetFileName(Path.TrimEndingDirectorySeparator(args.Path));
                 if (string.IsNullOrEmpty(filename))
                 {
@@ -62,7 +60,7 @@ namespace Emby.Server.Implementations.Library.Resolvers
 
             // Check if this is a music playlist file
             // It should have the correct collection type and a supported file extension
-            else if (_musicPlaylistCollectionTypes.Contains(args.CollectionType ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            else if (_musicPlaylistCollectionTypes.Contains(args.CollectionType))
             {
                 var extension = Path.GetExtension(args.Path.AsSpan());
                 if (Playlist.SupportedExtensions.Contains(extension, StringComparison.OrdinalIgnoreCase))
